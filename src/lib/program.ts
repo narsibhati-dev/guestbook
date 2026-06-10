@@ -19,81 +19,100 @@ export const DISC = {
   messageAccount: new Uint8Array([ 97, 144,  24,  58, 225,  40,  89, 223]),
 };
 
-/** Derive the PDA for a given authority: seeds = ["message", authority] */
-export async function getMessagePDA(authority: Address): Promise<Address> {
+/** Derive the PDA: seeds = ["message", authority, message_id (u64 LE)] */
+export async function getMessagePDA(authority: Address, messageId: bigint): Promise<Address> {
+  const idBytes = new Uint8Array(8);
+  new DataView(idBytes.buffer).setBigUint64(0, messageId, true);
   const [pda] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
     seeds: [
       new TextEncoder().encode("message"),
       getAddressEncoder().encode(authority),
+      idBytes,
     ],
   });
   return pda;
 }
 
-// ── Instruction data encoding (Anchor / Borsh) ────────────────────────────
+// ── Borsh helpers ─────────────────────────────────────────────────────────
 
 function encodeStr(str: string): Uint8Array {
   const utf8 = new TextEncoder().encode(str);
   const out = new Uint8Array(4 + utf8.length);
-  new DataView(out.buffer).setUint32(0, utf8.length, true); // u32 LE
+  new DataView(out.buffer).setUint32(0, utf8.length, true);
   out.set(utf8, 4);
   return out;
 }
 
-export function encodeCreateMessage(message: string): Uint8Array {
+function encodeU64(n: bigint): Uint8Array {
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setBigUint64(0, n, true);
+  return buf;
+}
+
+// ── Instruction encoding ──────────────────────────────────────────────────
+
+export function encodeCreateMessage(messageId: bigint, message: string): Uint8Array {
+  const id  = encodeU64(messageId);
   const str = encodeStr(message);
-  const out = new Uint8Array(8 + str.length);
+  const out = new Uint8Array(8 + 8 + str.length);
   out.set(DISC.createMessage, 0);
-  out.set(str, 8);
+  out.set(id, 8);
+  out.set(str, 16);
   return out;
 }
 
-export function encodeUpdateMessage(message: string): Uint8Array {
+export function encodeUpdateMessage(messageId: bigint, message: string): Uint8Array {
+  const id  = encodeU64(messageId);
   const str = encodeStr(message);
-  const out = new Uint8Array(8 + str.length);
+  const out = new Uint8Array(8 + 8 + str.length);
   out.set(DISC.updateMessage, 0);
-  out.set(str, 8);
+  out.set(id, 8);
+  out.set(str, 16);
   return out;
 }
 
-export function encodeDeleteMessage(): Uint8Array {
-  return new Uint8Array(DISC.deleteMessage);
+export function encodeDeleteMessage(messageId: bigint): Uint8Array {
+  const out = new Uint8Array(8 + 8);
+  out.set(DISC.deleteMessage, 0);
+  new DataView(out.buffer).setBigUint64(8, messageId, true);
+  return out;
 }
 
 // ── Account decoding ──────────────────────────────────────────────────────
 
 export interface DecodedMessage {
-  /** On-chain account address */
   accountAddress: string;
-  /** Author wallet address */
   author: string;
-  /** Message content */
+  id: bigint;
   message: string;
-  /** PDA bump */
   bump: number;
+  timestamp: number | null;
 }
 
+/**
+ * Layout (Anchor / Borsh):
+ *   [0..8]   discriminator
+ *   [8..40]  author (pubkey, 32 bytes)
+ *   [40..48] id (u64 LE)
+ *   [48..52] message length (u32 LE)
+ *   [52..]   message (utf-8)
+ *   [last]   bump (u8)
+ */
 export function decodeMessageAccount(
   accountAddress: string,
   data: Uint8Array
 ): DecodedMessage | null {
   try {
-    let offset = 8; // skip 8-byte Anchor discriminator
-    const authorBytes = data.slice(offset, offset + 32);
-    offset += 32;
-    const msgLen = new DataView(
-      data.buffer,
-      data.byteOffset + offset,
-      4
-    ).getUint32(0, true);
-    offset += 4;
-    const msgBytes = data.slice(offset, offset + msgLen);
-    offset += msgLen;
-    const bump = data[offset]; // u8
+    let offset = 8;
+    const authorBytes = data.slice(offset, offset + 32); offset += 32;
+    const id = new DataView(data.buffer, data.byteOffset + offset, 8).getBigUint64(0, true); offset += 8;
+    const msgLen = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0, true); offset += 4;
+    const msgBytes = data.slice(offset, offset + msgLen); offset += msgLen;
+    const bump = data[offset];
     const author = getAddressDecoder().decode(authorBytes);
     const message = new TextDecoder().decode(msgBytes);
-    return { accountAddress, author, message, bump };
+    return { accountAddress, author, id, message, bump, timestamp: null };
   } catch {
     return null;
   }
@@ -106,20 +125,14 @@ export const PROGRAM_ERRORS: Record<number, string> = {
   6001: "Message is too long.",
 };
 
-/**
- * Best-effort extraction of an Anchor custom-program-error code from a
- * Solana RPC error / log line and mapping it to a friendly message.
- */
 export function getProgramErrorMessage(error: unknown): string | null {
   const text =
     error instanceof Error ? `${error.message} ${error.stack ?? ""}` : String(error);
-  // Anchor errors surface as "custom program error: 0x1770" (= 6000), etc.
   const hexMatch = text.match(/custom program error[:\s]+0x([0-9a-fA-F]+)/);
   if (hexMatch) {
     const code = parseInt(hexMatch[1], 16);
     if (PROGRAM_ERRORS[code]) return PROGRAM_ERRORS[code];
   }
-  // Also try the JSON-RPC `InstructionError` shape: [..., { Custom: 6000 }]
   const customMatch = text.match(/"Custom"\s*:\s*(\d+)/);
   if (customMatch) {
     const code = parseInt(customMatch[1], 10);

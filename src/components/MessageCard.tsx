@@ -1,5 +1,17 @@
 "use client";
 
+function formatTime(ms: number): string {
+  const d = new Date(ms);
+  const today = new Date();
+  const isToday =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return time;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + time;
+}
+
 interface Props {
   address: string;
   truncatedAddress: string;
@@ -7,7 +19,9 @@ interface Props {
   avatarColor: string;
   message: string;
   isOwn: boolean;
-  submitting?: boolean;
+  timestamp?: number | null;
+  disabled?: boolean;
+  isDeleting?: boolean;
   onDelete?: () => void;
   onStartEdit?: (currentMessage: string) => void;
 }
@@ -18,7 +32,9 @@ export default function MessageCard({
   avatarColor,
   message,
   isOwn,
-  submitting,
+  timestamp,
+  disabled,
+  isDeleting,
   onDelete,
   onStartEdit,
 }: Props) {
@@ -54,6 +70,11 @@ export default function MessageCard({
               YOU
             </span>
           )}
+          {timestamp != null && (
+            <span className="text-[10px] text-[#4a4a4a]">
+              {formatTime(timestamp)}
+            </span>
+          )}
         </div>
 
         <div className={`${bubbleShape} ${bubbleColors} px-4 py-2.5 text-sm leading-relaxed break-words`}>
@@ -64,17 +85,17 @@ export default function MessageCard({
           <div className={`flex gap-2 mt-0.5 ${actionsAlign}`}>
             <button
               onClick={() => onStartEdit?.(message)}
-              disabled={submitting}
+              disabled={disabled}
               className="rounded-md bg-[#1a2535] hover:bg-[#1e2d40] text-[#6b9fd4] hover:text-[#8ab8e8] border border-[#243045] hover:border-[#2e4060] text-[11px] font-medium px-3 py-1 cursor-pointer disabled:opacity-50 transition-colors"
             >
               Edit
             </button>
             <button
               onClick={onDelete}
-              disabled={submitting}
+              disabled={disabled}
               className="rounded-md bg-[#2a1a1a] hover:bg-[#321e1e] text-[#c46a6a] hover:text-[#de8888] border border-[#3d2020] hover:border-[#4a2828] text-[11px] font-medium px-3 py-1 cursor-pointer disabled:opacity-50 transition-colors"
             >
-              {submitting ? "Deleting…" : "Delete"}
+              {isDeleting ? "Deleting…" : "Delete"}
             </button>
           </div>
         )}

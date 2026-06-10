@@ -64,8 +64,8 @@ export default function MessageForm({
     if (e.key === "Escape" && isEditing) onCancelEdit?.();
   }
 
-  const remaining = MAX - text.length;
-  const showCounter = remaining < 40;
+  const used = text.length;
+  const remaining = MAX - used;
   const disabled = submitting || !text.trim();
   const buttonLabel = submitting
     ? "Sending…"
@@ -127,13 +127,11 @@ export default function MessageForm({
         </button>
       </div>
 
-      {showCounter && (
-        <div className="flex justify-end px-2">
-          <span className={`text-[11px] tabular-nums ${remaining < 10 ? "text-[#c46a6a]" : "text-[#5a5a5a]"}`}>
-            {remaining}
-          </span>
-        </div>
-      )}
+      <div className="flex justify-end px-2">
+        <span className={`text-[11px] tabular-nums ${remaining < 20 ? "text-[#c46a6a]" : "text-[#4a4a4a]"}`}>
+          {used}/{MAX}
+        </span>
+      </div>
     </div>
   );
 }

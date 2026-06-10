@@ -14,6 +14,7 @@ interface Props {
   setText: (text: string) => void;
   focusToken?: number;
   isEditing: boolean;
+  editingId: bigint | null;
   onCancelEdit: () => void;
 }
 
@@ -25,12 +26,11 @@ export default function ConnectedContent({
   setText,
   focusToken,
   isEditing,
+  editingId,
   onCancelEdit,
 }: Props) {
   const signer = useWalletAccountTransactionSigner(account, CHAIN);
-  const { createMessage, updateMessage, getOwnMessage, submitting } = useGuestbook(signer);
-
-  const hasMessage = !!getOwnMessage(messages);
+  const { createMessage, updateMessage } = useGuestbook(signer);
 
   return (
     <MessageForm
@@ -39,14 +39,13 @@ export default function ConnectedContent({
       focusToken={focusToken}
       isEditing={isEditing}
       onCancelEdit={onCancelEdit}
-      hasMessage={hasMessage}
-      submitting={submitting}
+      hasMessage={isEditing}
+      submitting={false}
       onPost={(msg) => {
-        const onSuccess = () => {
-          onCancelEdit();
-          refetch();
-        };
-        hasMessage ? updateMessage(msg, onSuccess) : createMessage(msg, onSuccess);
+        const onSuccess = () => { onCancelEdit(); refetch(); };
+        editingId !== null
+          ? updateMessage(editingId, msg, onSuccess)
+          : createMessage(msg, onSuccess);
       }}
     />
   );

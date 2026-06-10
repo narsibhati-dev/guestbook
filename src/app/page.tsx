@@ -23,7 +23,6 @@ function avatarColor(addr: string): string {
   return COLORS[Math.abs(hash) % COLORS.length];
 }
 
-// ── Inner layout rendered only when wallet is connected ───────────────────
 function ConnectedLayout({
   actions,
   messages,
@@ -33,24 +32,27 @@ function ConnectedLayout({
   messages: DecodedMessage[];
   refetch: () => void;
 }) {
-  const [inputText, setInputText]   = useState("");
-  const [isEditing, setIsEditing]   = useState(false);
-  const [focusToken, setFocusToken] = useState(0);
+  const [inputText, setInputText]       = useState("");
+  const [isEditing, setIsEditing]       = useState(false);
+  const [editingId, setEditingId]       = useState<bigint | null>(null);
+  const [deletingId, setDeletingId]     = useState<bigint | null>(null);
+  const [focusToken, setFocusToken]     = useState(0);
 
-  const handleStartEdit = useCallback((message: string) => {
+  const handleStartEdit = useCallback((message: string, id: bigint) => {
     setInputText(message);
     setIsEditing(true);
+    setEditingId(id);
     setFocusToken((t) => t + 1);
   }, []);
 
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false);
+    setEditingId(null);
     setInputText("");
   }, []);
 
   return (
     <>
-      {/* Chat area */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-6 py-8 min-h-full flex flex-col justify-end gap-5">
           {messages.length === 0 ? (
@@ -73,16 +75,20 @@ function ConnectedLayout({
                 avatarColor={avatarColor(msg.author)}
                 message={msg.message}
                 isOwn={actions.isOwn(msg.author)}
-                submitting={actions.submitting}
-                onDelete={() => actions.deleteMessage(refetch)}
-                onStartEdit={handleStartEdit}
+                timestamp={msg.timestamp}
+                disabled={actions.submitting}
+                isDeleting={deletingId === msg.id}
+                onDelete={() => {
+                  setDeletingId(msg.id);
+                  actions.deleteMessage(msg.id, () => { setDeletingId(null); refetch(); });
+                }}
+                onStartEdit={(currentMessage) => handleStartEdit(currentMessage, msg.id)}
               />
             ))
           )}
         </div>
       </div>
 
-      {/* Input bar */}
       <div className="border-t border-[#2a2a2a] bg-page/95 backdrop-blur-md">
         <div className="px-6 py-4">
           <MessageForm
@@ -91,15 +97,15 @@ function ConnectedLayout({
             focusToken={focusToken}
             isEditing={isEditing}
             onCancelEdit={handleCancelEdit}
-            hasMessage={actions.hasMessage}
+            hasMessage={isEditing}
             submitting={actions.submitting}
             error={actions.error}
-            onPost={(msg) =>
-              actions.postMessage(msg, () => {
-                handleCancelEdit();
-                refetch();
-              })
-            }
+            onPost={(msg) => {
+              const onSuccess = () => { handleCancelEdit(); refetch(); };
+              editingId !== null
+                ? actions.updateMessage(editingId, msg, onSuccess)
+                : actions.createMessage(msg, onSuccess);
+            }}
           />
         </div>
       </div>
@@ -107,7 +113,6 @@ function ConnectedLayout({
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────
 export default function Home() {
   const [account] = useSelectedWalletAccount();
   const { messages, loading, error: fetchError, refetch } = useMessages();
@@ -115,7 +120,7 @@ export default function Home() {
   return (
     <div className="h-screen flex justify-center bg-page">
       <div className="h-full w-6xl flex flex-col border-x border-[#2a2a2a]">
-        <Navbar />
+        <Navbar onRefresh={refetch} refreshing={loading} />
 
         {fetchError && (
           <p className="text-sm text-[#c46a6a] bg-[#2a1a1a] border border-[#3d2020] mx-6 mt-4 rounded-lg px-4 py-2 text-center">
@@ -135,8 +140,7 @@ export default function Home() {
             </div>
           </div>
         ) : account ? (
-          /* Single ConnectedShell instance — one signer, one hook */
-          <ConnectedShell account={account} messages={messages}>
+          <ConnectedShell account={account}>
             {(actions) => (
               <ConnectedLayout
                 actions={actions}
@@ -169,6 +173,7 @@ export default function Home() {
                       avatarColor={avatarColor(msg.author)}
                       message={msg.message}
                       isOwn={false}
+                      timestamp={msg.timestamp}
                     />
                   ))
                 )}
